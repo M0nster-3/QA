@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>离线层 · 产物浏览器</title>
+
+<script>
+MathJax = {
+  tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
+  startup: { typeset: false }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --bg2: #161822; --bg3: #1c1f2e; --border: #2a2d3d;
+  --text: #c9d1d9; --text2: #8b949e; --accent: #58a6ff;
+  --def: #58a6ff; --thm: #f0883e; --lem: #3fb950; --cor: #d29922;
+  --prop: #bc8cff; --rem: #8b949e; --eg: #39d353; --ex: #f97583;
+  --not: #79c0ff; --conv: #d2a8ff; --ax: #ff7b72;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.sidebar {
+  width: 340px; min-width: 280px; background: var(--bg2);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+.sidebar-header h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.sidebar-header .stats { font-size: 12px; color: var(--text2); }
+
+.doc-select { padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.doc-select select {
+  width: 100%; padding: 6px 8px; background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px; outline: none; cursor: pointer;
+}
+
+.search-box { margin: 12px 16px; position: relative; }
+.search-box input {
+  width: 100%; padding: 8px 12px 8px 32px; background: var(--bg3);
+  border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 13px; outline: none;
+}
+.search-box input:focus { border-color: var(--accent); }
+.search-box .icon { position: absolute; left: 10px; top: 9px; color: var(--text2); font-size: 13px; }
+
+.kind-filters { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 16px 12px; border-bottom: 1px solid var(--border); }
+.kind-filters button {
+  padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border);
+  background: transparent; color: var(--text2); font-size: 11px; cursor: pointer; transition: all .15s;
+}
+.kind-filters button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.kind-filters button:hover:not(.active) { border-color: var(--text2); }
+
+.file-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.file-group { margin-bottom: 2px; }
+.file-group-header {
+  padding: 6px 16px; font-size: 12px; font-weight: 600; color: var(--text2);
+  cursor: pointer; user-select: none; display: flex; align-items: center; gap: 6px;
+}
+.file-group-header .arrow { font-size: 10px; transition: transform .15s; display: inline-block; }
+.file-group-header.collapsed .arrow { transform: rotate(-90deg); }
+.file-group-header .count { font-weight: 400; opacity: .7; }
+.file-group-header.collapsed + .file-group-items { display: none; }
+.file-item {
+  padding: 6px 16px 6px 28px; font-size: 13px; cursor: pointer; transition: background .1s;
+  display: flex; align-items: center; gap: 8px; border-left: 2px solid transparent;
+}
+.file-item:hover { background: var(--bg3); }
+.file-item.selected { background: var(--bg3); border-left-color: var(--accent); }
+.file-item .kind-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+.file-item .label { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-item .id-tag { color: var(--text2); font-size: 11px; font-family: monospace; }
+
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.tabs {
+  display: flex; gap: 0; background: var(--bg2); border-bottom: 1px solid var(--border); padding: 0 16px;
+}
+.tabs button {
+  padding: 10px 16px; border: none; background: transparent; color: var(--text2);
+  font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s;
+}
+.tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.tabs button:hover:not(.active) { color: var(--text); }
+.tab-content { flex: 1; overflow-y: auto; padding: 24px 32px; display: none; }
+.tab-content.active { display: block; }
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; color: var(--text2);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; opacity: .3; }
+
+.content-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.kind-badge {
+  padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.kind-def { background: rgba(88,166,255,.15); color: var(--def); }
+.kind-thm { background: rgba(240,136,62,.15); color: var(--thm); }
+.kind-lem { background: rgba(63,185,80,.15); color: var(--lem); }
+.kind-cor { background: rgba(210,153,34,.15); color: var(--cor); }
+.kind-prop { background: rgba(188,140,255,.15); color: var(--prop); }
+.kind-rem { background: rgba(139,148,158,.15); color: var(--rem); }
+.kind-eg  { background: rgba(57,211,83,.15); color: var(--eg); }
+.kind-ex  { background: rgba(249,117,131,.15); color: var(--ex); }
+.kind-not { background: rgba(121,192,255,.15); color: var(--not); }
+.kind-ax  { background: rgba(255,123,114,.15); color: var(--ax); }
+.kind-conv { background: rgba(210,168,255,.15); color: var(--conv); }
+
+.id-display { font-family: monospace; font-size: 13px; color: var(--text2); }
+.label-display { font-size: 15px; font-weight: 600; }
+
+.md-section { margin-bottom: 24px; }
+.md-section h2 {
+  font-size: 14px; font-weight: 600; color: var(--text2); text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 12px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.md-body { font-size: 14px; line-height: 1.8; }
+
+/* certainty_answer badge */
+.cert-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  border-radius: 999px; font-size: 11px; font-weight: 600;
+}
+.cert-true { background: rgba(63,185,80,.15); color: var(--lem); }
+.cert-false { background: rgba(139,148,158,.15); color: var(--rem); }
+
+/* keywords */
+.keyword-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.keyword-tag {
+  padding: 2px 10px; border-radius: 999px; font-size: 11px;
+  background: rgba(88,166,255,.08); border: 1px solid rgba(88,166,255,.2); color: var(--accent);
+}
+.keyword-tag .rank { opacity: .5; margin-right: 3px; font-size: 10px; }
+
+.prov-bar {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 14px; margin-bottom: 20px; font-size: 12px; color: var(--text2);
+  display: flex; gap: 16px; flex-wrap: wrap;
+}
+.prov-bar span { display: flex; align-items: center; gap: 4px; }
+
+.dep-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.dep-tag {
+  padding: 3px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; transition: all .15s;
+  background: var(--bg3); border: 1px solid var(--border); font-family: monospace; color: var(--accent);
+}
+.dep-tag:hover { border-color: var(--accent); }
+.dep-tag .dep-label { color: var(--text2); font-size: 11px; margin-left: 4px; font-family: inherit; }
+.dangling-tag {
+  padding: 3px 10px; border-radius: 4px; font-size: 12px;
+  background: rgba(249,117,131,.1); border: 1px solid rgba(249,117,131,.3);
+  color: var(--ex); display: inline-flex; align-items: center; gap: 4px;
+}
+.dangling-type { font-size: 10px; opacity: .7; text-transform: uppercase; }
+
+#graph-container { width: 100%; height: 100%; position: relative; }
+#graph-svg { width: 100%; height: 100%; }
+.graph-tooltip {
+  position: absolute; pointer-events: none; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px;
+  font-size: 12px; display: none; z-index: 10; max-width: 300px;
+}
+.graph-legend {
+  position: absolute; top: 16px; right: 16px; background: var(--bg2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 11px;
+}
+.graph-legend .item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+
+.scope-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-bottom: 16px;
+}
+.scope-card .header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.scope-card .scope-type { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.scope-literal { background: rgba(63,185,80,.15); color: var(--lem); }
+.scope-semantic { background: rgba(210,153,34,.15); color: var(--cor); }
+.scope-card .text { font-size: 14px; margin-bottom: 12px; }
+.scope-card .affected { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.index-table { width: 100%; border-collapse: collapse; }
+.index-table th {
+  text-align: left; padding: 8px 12px; font-size: 12px; color: var(--text2);
+  border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg);
+}
+.index-table td { padding: 8px 12px; font-size: 13px; border-bottom: 1px solid rgba(42,45,61,.5); }
+.index-table .index-label { color: var(--text); }
+.index-table .index-id { font-family: monospace; color: var(--accent); cursor: pointer; }
+.index-table .index-id:hover { text-decoration: underline; }
+
+.loading { padding: 40px; text-align: center; color: var(--text2); }
+.loading .spinner {
+  display: inline-block; width: 24px; height: 24px; border: 2px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.error-msg { color: var(--ex); font-size: 13px; padding: 8px 16px; }
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1>离线层 · 产物浏览器</h1>
+    <div class="stats" id="file-stats">加载中...</div>
+  </div>
+  <div class="doc-select">
+    <select id="doc-selector" onchange="selectDocument(this.value)">
+      <option value="">选择论文...</option>
+    </select>
+  </div>
+  <div class="search-box">
+    <span class="icon">&#x1f50d;</span>
+    <input type="text" id="search-input" placeholder="搜索 label 或文件名...">
+  </div>
+  <div class="kind-filters" id="kind-filters"></div>
+  <div class="file-list" id="file-list">
+    <div class="loading"><div class="spinner"></div></div>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="tabs">
+    <button class="active" data-tab="content">Content</button>
+    <button data-tab="deps">Dependencies</button>
+    <button data-tab="graph">Graph</button>
+    <button data-tab="scope">Scope</button>
+    <button data-tab="dangling" id="tab-btn-dangling" style="display:none;">Dangling</button>
+    <button data-tab="index">Index</button>
+  </div>
+
+  <div class="tab-content active" id="tab-content">
+    <div class="empty-state"><div class="icon">&#x1f4c4;</div><div>选择左侧文件查看内容</div></div>
+  </div>
+
+  <div class="tab-content" id="tab-deps">
+    <div class="empty-state"><div class="icon">&#x1f517;</div><div>选择文件后查看依赖关系</div></div>
+  </div>
+
+  <div class="tab-content" id="tab-graph" style="padding:0;">
+    <div id="graph-container"></div>
+  </div>
+
+  <div class="tab-content" id="tab-scope">
+    <div id="scope-content" class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <div class="tab-content" id="tab-dangling">
+    <div id="dangling-content" class="loading"><div class="spinner"></div></div>
+  </div>
+
+  <div class="tab-content" id="tab-index">
+    <div style="margin-bottom:16px;">
+      <input type="text" id="index-search" placeholder="搜索索引条目..."
+             style="width:300px;padding:6px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;">
+    </div>
+    <div style="max-height:calc(100vh - 140px);overflow-y:auto;">
+      <table class="index-table" id="index-table"></table>
+    </div>
+  </div>
+</main>
+
+<script>
+const OUTPUT_ROOT = '../server/data/papers';
+let BASE = OUTPUT_ROOT;
+const KIND_COLORS = {
+  definition:'#58a6ff', theorem:'#f0883e', lemma:'#3fb950', proposition:'#bc8cff',
+  corollary:'#d29922', remark:'#8b949e', example:'#39d353', exercise:'#f97583',
+  notation:'#79c0ff', convention:'#d2a8ff', axiom:'#ff7b72'
+};
+const KIND_ZH = {
+  definition:'定义', theorem:'定理', lemma:'引理', proposition:'命题', corollary:'推论',
+  remark:'评注', example:'示例', exercise:'习题', notation:'记号', convention:'约定', axiom:'公理'
+};
+const KIND_ORDER = ['definition','theorem','lemma','proposition','corollary','remark','example','exercise','notation','convention','axiom'];
+
+let provenance = [];
+let deps = {};
+let scopeData = [];
+let nameIndex = {};
+let sourceData = {};
+let selectedId = null;
+let kindCounts = {};
+let allFiles = [];
+let activeFilters = new Set();
+
+function kindBadgeClass(k) {
+  const m = {def:'def',thm:'thm',lem:'lem',cor:'cor',rem:'rem',eg:'eg',ex:'ex',not:'not',conv:'conv',ax:'ax',prop:'prop'};
+  return 'kind-badge kind-' + (m[k] || k);
+}
+function kindDot(k) { return `<span class="kind-dot" style="background:${KIND_COLORS[k]||'#666'}"></span>`; }
+
+// ── Doc List ──────────────────────────────────────────────────
+async function loadDocList() {
+  try {
+    const res = await fetch(`${OUTPUT_ROOT}/_papers_ui.json`);
+    if (!res.ok) { fallbackSingleDoc(); return; }
+    const docs = await res.json();
+    if (!docs.length) { fallbackSingleDoc(); return; }
+
+    const sel = document.getElementById('doc-selector');
+    sel.innerHTML = '<option value="">选择论文...</option>';
+    docs.forEach(d => {
+      const kw = d.keywords?.length ? ` [${d.keywords.slice(0,3).map(k=>k.keyword).join(', ')}]` : '';
+      sel.innerHTML += `<option value="${d.arxiv_id}">${escHtml(d.arxiv_id)}${kw} (${d.md_count})</option>`;
+    });
+    if (docs.length > 0) { sel.value = docs[0].arxiv_id; await selectDocument(docs[0].arxiv_id); }
+  } catch (e) { fallbackSingleDoc(); }
+}
+
+function fallbackSingleDoc() {
+  const sel = document.getElementById('doc-selector');
+  sel.innerHTML = '<option value="">(无已处理论文)</option>';
+  document.getElementById('file-stats').textContent = '未找到论文数据';
+}
+
+async function selectDocument(arxivId) {
+  if (!arxivId) return;
+  BASE = `${OUTPUT_ROOT}/${arxivId}`;
+  selectedId = null;
+  allFiles = []; provenance = []; deps = {}; scopeData = []; nameIndex = {}; sourceData = {}; kindCounts = {};
+
+  document.getElementById('file-stats').textContent = '加载中...';
+  document.getElementById('file-list').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('tab-content').innerHTML = '<div class="empty-state"><div class="icon">📄</div><div>选择左侧文件查看内容</div></div>';
+  document.getElementById('tab-deps').innerHTML = '<div class="empty-state"><div class="icon">🔗</div><div>选择文件后查看依赖关系</div></div>';
+  document.getElementById('tab-scope').querySelector('#scope-content').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('tab-dangling').querySelector('#dangling-content').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('graph-container').innerHTML = '';
+
+  await loadData();
+}
+
+// ── Load Data ──────────────────────────────────────────────────
+async function loadData() {
+  try {
+    const procDir = `${BASE}/processed`;
+    const [provRes, depsRes, scopeRes, idxRes, srcRes] = await Promise.all([
+      fetch(`${procDir}/module0_provenance.json`),
+      fetch(`${procDir}/project_deps.json`),
+      fetch(`${procDir}/module0_scope.json`),
+      fetch(`${procDir}/global_name_index.json`),
+      fetch(`${BASE}/source.json`),
+    ]);
+    provenance = await provRes.json();
+    deps = await depsRes.json();
+    scopeData = await scopeRes.json();
+    nameIndex = await idxRes.json();
+    sourceData = await srcRes.json();
+
+    kindCounts = {};
+    allFiles = provenance.map(e => {
+      const id = e.md_file.replace('.md','');
+      return { id, file: e.md_file, prov: e };
+    });
+
+    const prefixMap = {def:'definition',thm:'theorem',lem:'lemma',prop:'proposition',
+                       cor:'corollary',rem:'remark',eg:'example',ex:'exercise',
+                       not:'notation',conv:'convention',ax:'axiom'};
+    for (const f of allFiles) {
+      const pf = f.id.substring(0, f.id.indexOf('_') >= 0 ? f.id.indexOf('_') : 3);
+      f.kind = prefixMap[pf] || 'definition';
+      for (const [label, nid] of Object.entries(nameIndex)) {
+        if (nid === f.id) { f.label = label; break; }
+      }
+      if (!f.label) f.label = '';
+      kindCounts[f.kind] = (kindCounts[f.kind]||0) + 1;
+    }
+    allFiles.sort((a,b) => {
+      const sa = parseInt(a.id.split('_')[1]), sb = parseInt(b.id.split('_')[1]);
+      return sa - sb;
+    });
+
+    renderSidebar();
+    renderScopeTab();
+    renderDanglingTab();
+    renderIndexTab();
+    document.getElementById('file-stats').textContent =
+      `${allFiles.length} 文件 · ${Object.keys(nameIndex).length} 索引 · ${scopeData.length} 约定 · ${(sourceData.ai_keywords||[]).length} 关键词`;
+  } catch (e) {
+    document.getElementById('file-list').innerHTML =
+      `<div class="error-msg">加载失败: ${e.message}<br><small>请确认已通过 HTTP 服务器打开此页面（运行 python serve.py）</small></div>`;
+  }
+}
+
+// ── Sidebar ────────────────────────────────────────────────────
+function renderSidebar() {
+  const filterEl = document.getElementById('kind-filters');
+  const kinds = KIND_ORDER.filter(k => kindCounts[k]);
+  filterEl.innerHTML = kinds.map(k =>
+    `<button data-kind="${k}" class="${activeFilters.size===0||activeFilters.has(k)?'active':''}">${KIND_ZH[k]} ${kindCounts[k]}</button>`
+  ).join('');
+  filterEl.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const k = btn.dataset.kind;
+      if (activeFilters.size === 0) { kinds.forEach(kk => { if (kk !== k) activeFilters.add(kk); }); }
+      if (activeFilters.has(k)) activeFilters.delete(k); else activeFilters.add(k);
+      if (activeFilters.size === kinds.length) activeFilters.clear();
+      renderSidebar();
+    });
+  });
+
+  const query = document.getElementById('search-input').value.toLowerCase();
+  const filtered = allFiles.filter(f => {
+    if (activeFilters.size > 0 && !activeFilters.has(f.kind)) return false;
+    if (query && !f.id.includes(query) && !f.label.toLowerCase().includes(query)) return false;
+    return true;
+  });
+
+  const groups = {};
+  for (const f of filtered) { if (!groups[f.kind]) groups[f.kind] = []; groups[f.kind].push(f); }
+
+  const listEl = document.getElementById('file-list');
+  let html = '';
+  for (const k of KIND_ORDER) {
+    const items = groups[k]; if (!items || !items.length) continue;
+    html += `<div class="file-group">`;
+    html += `<div class="file-group-header" data-kind="${k}" onclick="toggleGroup(this)">
+      <span class="arrow">▼</span> ${kindDot(k)} ${KIND_ZH[k]} <span class="count">(${items.length})</span></div>`;
+    html += `<div class="file-group-items">`;
+    for (const f of items) {
+      const sel = selectedId === f.id ? ' selected' : '';
+      html += `<div class="file-item${sel}" data-id="${f.id}" onclick="selectFile('${f.id}')">
+        ${kindDot(f.kind)}<span class="label">${escHtml(f.label||f.id)}</span><span class="id-tag">${f.id}</span></div>`;
+    }
+    html += `</div></div>`;
+  }
+  if (!html) html = `<div style="padding:24px;text-align:center;color:var(--text2)">无匹配文件</div>`;
+  listEl.innerHTML = html;
+}
+
+function toggleGroup(el) { el.classList.toggle('collapsed'); }
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Select File ────────────────────────────────────────────────
+async function selectFile(id) {
+  selectedId = id;
+  renderSidebar();
+  const f = allFiles.find(x => x.id === id);
+  if (!f) return;
+
+  let mdText = '';
+  try {
+    const res = await fetch(`${BASE}/processed/md/${f.id}.md`);
+    mdText = await res.text();
+  } catch (e) {
+    mdText = `---\nkind: ${f.kind}\nlabel: "${f.label}"\nhas_proof: false\nproof_omitted_by_source: false\ncertainty_answer: false\n---\n\n## Statement\n(无法加载文件内容)\n\n## Proof\n`;
+  }
+
+  const yamlMatch = mdText.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  let yaml = {}, body = '';
+  if (yamlMatch) {
+    for (const line of yamlMatch[1].split('\n')) {
+      const idx = line.indexOf(':'); if (idx > 0) yaml[line.substring(0,idx).trim()] = line.substring(idx+1).trim();
+    }
+    body = yamlMatch[2];
+  } else { body = mdText; }
+
+  const node = deps[id] || {statement_deps:[], proof_refs:[], dangling:[]};
+  const cert = yaml.certainty_answer === 'true';
+
+  const tab = document.getElementById('tab-content');
+  tab.innerHTML = `
+    <div class="prov-bar">
+      <span>📄 ${escHtml(f.prov.file)}</span>
+      <span>📍 ${f.prov.locator.type}: ${f.prov.locator.value}</span>
+    </div>
+    <div class="content-header">
+      <span class="kind-badge ${kindBadgeClass(f.kind)}">${KIND_ZH[f.kind]}</span>
+      <span class="label-display">${escHtml(yaml.label || '(无编号)')}</span>
+      <span class="id-display">${f.id}</span>
+      <span class="cert-badge ${cert?'cert-true':'cert-false'}">${cert?'✓ certainty':'— certainty'}</span>
+    </div>
+    <div class="md-section"><h2>Statement</h2><div class="md-body" id="md-statement"></div></div>
+    <div class="md-section"><h2>Proof</h2><div class="md-body" id="md-proof"></div></div>
+  `;
+  tab.classList.add('active');
+
+  const stMatch = body.match(/## Statement\r?\n([\s\S]*?)(?=\r?\n## Proof|\r?\n*$)/);
+  const prMatch = body.match(/## Proof\r?\n([\s\S]*)/);
+  const stText = stMatch ? (stMatch[1].trim() || '') : body;
+  const prText = prMatch ? (prMatch[1].trim() || '') : '';
+
+  document.getElementById('md-statement').innerHTML = stText
+    ? escHtml(stText).replace(/\n/g, '<br>') : '<span style="color:var(--text2)">(空)</span>';
+  document.getElementById('md-proof').innerHTML = prText
+    ? escHtml(prText).replace(/\n/g, '<br>') : '<span style="color:var(--text2)">(无证明)</span>';
+
+  const stEl = document.getElementById('md-statement'), prEl = document.getElementById('md-proof');
+  if (window.MathJax && MathJax.typesetPromise) { MathJax.typesetPromise([stEl, prEl]).catch(()=>{}); }
+  else if (window.MathJax) { MathJax.startup.promise.then(() => MathJax.typesetPromise([stEl, prEl])).catch(()=>{}); }
+  else { let n=0; const iv=setInterval(()=>{ if(window.MathJax?.typesetPromise){clearInterval(iv);MathJax.typesetPromise([stEl,prEl]).catch(()=>{});} if(++n>50)clearInterval(iv); },200); }
+
+  renderDepsTab(id, f, node);
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  document.querySelector('.tabs button[data-tab="content"]').classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+}
+
+// ── Deps Tab ───────────────────────────────────────────────────
+function renderDepsTab(id, f, node) {
+  const tab = document.getElementById('tab-deps');
+  let html = `
+    <div class="content-header" style="margin-bottom:24px;">
+      <span class="kind-badge ${kindBadgeClass(f.kind)}">${KIND_ZH[f.kind]}</span>
+      <span class="label-display">${escHtml(f.label||'(无编号)')}</span>
+      <span class="id-display">${id}</span>
+    </div>`;
+
+  const incomingSt=[], incomingPr=[];
+  for(const [nid,n] of Object.entries(deps)){if(n.statement_deps?.includes(id))incomingSt.push(nid);if(n.proof_refs?.includes(id))incomingPr.push(nid);}
+  if(incomingSt.length||incomingPr.length){
+    html+=`<div class="md-section"><h2>被依赖 (Incoming)</h2>`;
+    if(incomingSt.length)html+=`<div style="margin-bottom:8px;"><span style="color:var(--text2);font-size:12px;">statement_deps:</span> ${incomingSt.map(nid=>depTag(nid)).join(' ')}</div>`;
+    if(incomingPr.length)html+=`<div><span style="color:var(--text2);font-size:12px;">proof_refs:</span> ${incomingPr.map(nid=>depTag(nid)).join(' ')}</div>`;
+    html+=`</div>`;
+  }
+
+  html+=`<div class="md-section"><h2>Statement Dependencies (${node.statement_deps?.length||0})</h2>`;
+  if(node.statement_deps?.length){html+=`<div class="dep-list">${node.statement_deps.map(nid=>depTag(nid)).join('')}</div>`;}
+  else{html+=`<span style="color:var(--text2);font-size:13px;">无</span>`;}html+=`</div>`;
+
+  html+=`<div class="md-section"><h2>Proof References (${node.proof_refs?.length||0})</h2>`;
+  if(node.proof_refs?.length){html+=`<div class="dep-list">${node.proof_refs.map(nid=>depTag(nid)).join('')}</div>`;}
+  else{html+=`<span style="color:var(--text2);font-size:13px;">无</span>`;}html+=`</div>`;
+
+  html+=`<div class="md-section"><h2>Dangling (${node.dangling?.length||0})</h2>`;
+  if(node.dangling?.length){html+=`<div class="dep-list">${node.dangling.map(d=>`<span class="dangling-tag">⚠ ${escHtml(d.ref)} <span class="dangling-type">${d.type}</span></span>`).join('')}</div>`;}
+  else{html+=`<span style="color:var(--text2);font-size:13px;">无</span>`;}html+=`</div>`;
+
+  tab.innerHTML=html;
+  tab.querySelectorAll('.dep-tag').forEach(el=>{el.addEventListener('click',()=>selectFile(el.dataset.nid));});
+}
+
+function depTag(nid){const l=findLabel(nid);const f=allFiles.find(x=>x.id===nid);const k=f?KIND_ZH[f.kind]:'';return`<span class="dep-tag" data-nid="${nid}" title="${escHtml(k+' '+l)}">${nid}<span class="dep-label">${escHtml(l||'')}</span></span>`;}
+function findLabel(nid){for(const[l,id]of Object.entries(nameIndex))if(id===nid)return l;return'';}
+
+// ── Graph Tab ──────────────────────────────────────────────────
+function renderGraph(){
+  const container=document.getElementById('graph-container');container.innerHTML='';
+  const nodes=allFiles.map(f=>({id:f.id,kind:f.kind,label:f.label||f.id}));
+  const nodeSet=new Set(nodes.map(n=>n.id));
+  const links=[];
+  for(const[nid,n]of Object.entries(deps)){for(const t of(n.statement_deps||[]))if(nodeSet.has(t))links.push({source:nid,target:t,type:'statement'});for(const t of(n.proof_refs||[]))if(nodeSet.has(t))links.push({source:nid,target:t,type:'proof'});}
+
+  const W=container.clientWidth,H=container.clientHeight||700;
+  const svg=d3.select(container).append('svg').attr('id','graph-svg').attr('width',W).attr('height',H);
+  const g=svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.1,4]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  const sim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>d.type==='proof'?80:60))
+    .force('charge',d3.forceManyBody().strength(-200))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collision',d3.forceCollide(20));
+
+  const link=g.append('g').selectAll('line').data(links).join('line')
+    .attr('stroke',d=>d.type==='proof'?'#d29922':'#30363d')
+    .attr('stroke-width',d=>d.type==='proof'?1.5:1)
+    .attr('stroke-dasharray',d=>d.type==='proof'?'5,3':null)
+    .attr('marker-end',d=>d.type==='proof'?'url(#arrow-proof)':'url(#arrow-stmt)');
+
+  svg.append('defs').selectAll('marker').data(['arrow-stmt','arrow-proof']).join('marker')
+    .attr('id',d=>d).attr('viewBox','0 -5 10 10').attr('refX',20).attr('refY',0)
+    .attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+    .append('path').attr('d','M0,-4L10,0L0,4').attr('fill',d=>d==='arrow-proof'?'#d29922':'#58a6ff');
+
+  const node=g.append('g').selectAll('g').data(nodes).join('g')
+    .attr('cursor','pointer')
+    .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;})
+                     .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y;})
+                     .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}))
+    .on('click',(e,d)=>selectFile(d.id))
+    .on('mouseenter',(e,d)=>{d3.select('#graph-tooltip').style('display','block').html(`<b>${d.id}</b><br>${escHtml(d.label||'')}<br><span style="color:var(--text2)">${KIND_ZH[d.kind]}</span>`);})
+    .on('mousemove',(e,d)=>{d3.select('#graph-tooltip').style('left',(e.pageX+12)+'px').style('top',(e.pageY-28)+'px');})
+    .on('mouseleave',()=>d3.select('#graph-tooltip').style('display','none'));
+
+  node.append('circle').attr('r',6).attr('fill',d=>KIND_COLORS[d.kind]||'#666').attr('stroke','#0f1117').attr('stroke-width',2);
+  node.append('text').text(d=>d.id).attr('x',10).attr('y',4).attr('font-size',10).attr('fill','#8b949e').attr('font-family','monospace');
+
+  sim.on('tick',()=>{link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);node.attr('transform',d=>`translate(${d.x},${d.y})`);});
+
+  const legend=d3.select(container).append('div').attr('class','graph-legend');
+  let legHtml='<b>节点</b><br>';
+  const usedKinds=[...new Set(nodes.map(n=>n.kind))].sort((a,b)=>KIND_ORDER.indexOf(a)-KIND_ORDER.indexOf(b));
+  for(const k of usedKinds){legHtml+=`<div class="item"><span style="width:10px;height:10px;border-radius:999px;background:${KIND_COLORS[k]}"></span>${KIND_ZH[k]}</div>`;}
+  legHtml+='<br><b>边</b><br>';
+  legHtml+=`<div class="item"><span style="width:16px;height:1px;background:#58a6ff;"></span> statement</div>`;
+  legHtml+=`<div class="item"><span style="width:16px;height:1px;background:#d29922;border-top:1px dashed #d29922;"></span> proof</div>`;
+  legend.html(legHtml);
+  d3.select(container).append('div').attr('id','graph-tooltip').attr('class','graph-tooltip');
+}
+
+// ── Scope Tab ──────────────────────────────────────────────────
+function renderScopeTab(){
+  const el=document.getElementById('scope-content');
+  if(!scopeData.length){el.innerHTML=`<div class="empty-state"><div class="icon">📋</div><div>暂无约定</div></div>`;return;}
+  el.innerHTML=scopeData.map((s,i)=>`
+    <div class="scope-card">
+      <div class="header">
+        <span class="scope-type ${s.scope_type==='literal'?'scope-literal':'scope-semantic'}">${s.scope_type}</span>
+        <span style="color:var(--text2);font-size:12px;">约定 #${i+1}</span>
+      </div>
+      <div class="text scope-latex-${i}">${escHtml(s.text)}</div>
+      ${s.affected_md?.length?`<div style="color:var(--text2);font-size:12px;margin-bottom:8px;">影响 ${s.affected_md.length} 篇:</div>
+      <div class="affected">${s.affected_md.map(m=>depTag(m.replace('.md',''))).join('')}</div>`:''}
+      <div style="font-size:11px;color:var(--text2);margin-top:8px;">📍 ${escHtml(s.source_location?.file||'')} · ${s.source_location?.locator?.type}: ${s.source_location?.locator?.value}</div>
+    </div>
+  `).join('');
+  el.querySelectorAll('.dep-tag').forEach(tag=>{tag.addEventListener('click',()=>selectFile(tag.dataset.nid));});
+  const typesetScope=()=>{el.querySelectorAll('[class^="scope-latex-"]').forEach(div=>{if(window.MathJax?.typesetPromise)MathJax.typesetPromise([div]).catch(()=>{});});};
+  if(window.MathJax?.typesetPromise){typesetScope();}else if(window.MathJax){MathJax.startup.promise.then(typesetScope);}
+  else{let n=0;const iv=setInterval(()=>{if(window.MathJax?.typesetPromise){clearInterval(iv);typesetScope();}if(++n>50)clearInterval(iv);},200);}
+}
+
+// ── Dangling Tab ───────────────────────────────────────────────
+function renderDanglingTab(){
+  const el=document.getElementById('dangling-content');
+  const allDangling=[];
+  for(const[nid,node]of Object.entries(deps)){for(const d of(node.dangling||[])){allDangling.push({nodeId:nid,ref:d.ref,type:d.type,status:d.status});}}
+  const btn=document.getElementById('tab-btn-dangling');
+  if(!allDangling.length){btn.style.display='none';el.innerHTML='';return;}
+  btn.style.display='';
+  const typeLabel={forward:'前向引用',vague:'模糊回指',external:'外部文献'};
+  const typeStyle={forward:'background:rgba(88,166,255,.15);color:#58a6ff;',vague:'background:rgba(249,117,131,.15);color:#f97583;',external:'background:rgba(139,148,158,.15);color:#8b949e;'};
+  el.innerHTML=`
+    <div style="margin-bottom:16px;color:var(--text2);font-size:13px;">共 <b style="color:var(--text);">${allDangling.length}</b> 条悬空引用</div>
+    <table class="index-table">
+      <thead><tr><th>节点</th><th>引用原文</th><th>类型</th><th>状态</th></tr></thead>
+      <tbody>${allDangling.map(d=>`<tr>
+        <td class="index-id" data-nid="${d.nodeId}">${d.nodeId}</td>
+        <td style="font-size:13px;">${escHtml(d.ref)}</td>
+        <td><span style="padding:2px 8px;border-radius:4px;font-size:11px;${typeStyle[d.type]||''}">${typeLabel[d.type]||d.type}</span></td>
+        <td style="font-size:12px;color:var(--text2);">${escHtml(d.status)}</td>
+      </tr>`).join('')}</tbody></table>`;
+  el.querySelectorAll('.index-id').forEach(td=>{td.addEventListener('click',()=>selectFile(td.dataset.nid));});
+}
+
+// ── Index Tab ──────────────────────────────────────────────────
+function renderIndexTab(){
+  const locMap={};
+  for(const e of provenance){const id=e.md_file.replace('.md','');locMap[id]=e.locator;}
+
+  // 按溯源位置排序：取 locator.value 的起始行号，无法解析的排最后
+  function parseStartLine(loc) {
+    if (!loc || !loc.value) return Infinity;
+    const m = String(loc.value).match(/^(\d+)/);
+    return m ? parseInt(m[1]) : Infinity;
+  }
+  const sorted = [...allFiles].sort((a,b) => {
+    const sa = parseStartLine(locMap[a.id]);
+    const sb = parseStartLine(locMap[b.id]);
+    return sa - sb;
+  });
+
+  let rows = '';
+  for (const f of sorted) {
+    const loc = locMap[f.id];
+    const locText = loc ? (loc.type==='page' ? `p.${loc.value}` : `L${loc.value}`) : '';
+    const label = f.label || '';
+    rows += `<tr>
+      <td class="index-label">${escHtml(label)}</td>
+      <td class="index-id" data-nid="${f.id}">${f.id}</td>
+      <td style="font-size:12px;color:var(--text2);font-family:monospace;">${escHtml(locText)}</td>
+    </tr>`;
+  }
+
+  document.getElementById('index-table').innerHTML =
+    `<thead><tr><th>Label</th><th>系统 ID</th><th>溯源位置</th></tr></thead><tbody>${rows}</tbody>`;
+  document.querySelectorAll('.index-id').forEach(el=>{el.addEventListener('click',()=>selectFile(el.dataset.nid));});
+  document.getElementById('index-search').addEventListener('input',function(){
+    const q=this.value.toLowerCase();
+    document.querySelectorAll('#index-table tbody tr').forEach(tr=>{
+      tr.style.display=tr.textContent.toLowerCase().includes(q)?'':'none';
+    });
+  });
+}
+
+// ── Tab Switching ──────────────────────────────────────────────
+document.querySelectorAll('.tabs button').forEach(btn=>{btn.addEventListener('click',()=>{
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+  if(btn.dataset.tab==='graph')setTimeout(renderGraph,100);
+});});
+
+document.getElementById('search-input').addEventListener('input',()=>renderSidebar());
+loadDocList();
+</script>
+
+</body>
+</html>

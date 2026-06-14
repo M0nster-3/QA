@@ -1,0 +1,17 @@
+# Paper data
+server/data/papers/*/
+server/data/papers/_papers_*.json
+server/data/papers/_batch_*.json
+server/data/papers/_batch_state.json
+
+# Python
+__pycache__/
+*.pyc
+
+# LaTeX aux files
+*.aux
+*.log
+*.out
+*.toc
+server/data/papers/_test_*.json
+.env
