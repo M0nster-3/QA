@@ -1,0 +1,23 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# Data
+server/data/
+server/benchmark_sandbox/
+server/benchmark_workspace/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+.vscode/
+
+
