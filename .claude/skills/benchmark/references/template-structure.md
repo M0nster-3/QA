@@ -28,11 +28,11 @@ This document defines the complete structure, numbering, formatting, and LaTeX c
 \newtheorem*{review}{Review}
 
 % === Custom counter: all environments share one counter ===
-\newcounter{envcounter}[subsection]
-\renewcommand{\theenvcounter}{\thesubsection.\arabic{envcounter}}
+\newcounter{envcounter}[section]
+\renewcommand{\theenvcounter}{\thesection.\arabic{envcounter}}
 
 % === Formula counter ===
-\numberwithin{equation}{subsection}
+\numberwithin{equation}{section}
 
 \begin{document}
 ```
@@ -50,7 +50,7 @@ This document defines the complete structure, numbering, formatting, and LaTeX c
 
 ### 2.1 Environment Counter
 
-All named environments share **one counter**, incrementing within each subsection:
+All named environments share **one counter**, incrementing within each section:
 
 | Order | Environment Type          | Example Number   |
 |-------|--------------------------|------------------|
@@ -65,7 +65,7 @@ All named environments share **one counter**, incrementing within each subsectio
 
 ### 2.2 Equation Counter
 
-Equations numbered independently within each subsection: (1.1), (1.2), ..., (1.34), ...
+Equations numbered independently within each section: (1.1), (1.2), ..., (1.34), ...
 
 Only number equations that are:
 - Key assumptions or conditions
